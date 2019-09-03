@@ -18,5 +18,16 @@ function add_xpayments_gateway_class( $methods ) {
     return $methods;
 }
 
-add_action('plugins_loaded', 'init_xpayments_plugin');
-add_filter('woocommerce_payment_gateways', 'add_xpayments_gateway_class');
+function check_for_xpayments_return() {
+    if( isset($_GET['xpayments-continue-payment']) ) {
+        // Start the gateways
+        WC()->payment_gateways();
+        do_action( 'xpayments_continue_payment' );
+    }
+
+}
+
+add_action( 'plugins_loaded', 'init_xpayments_plugin' );
+add_action( 'init', 'check_for_xpayments_return' );
+
+add_filter( 'woocommerce_payment_gateways', 'add_xpayments_gateway_class' );

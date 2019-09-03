@@ -18,6 +18,8 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
         $this->init_form_fields();
         $this->init_settings();
 
+        add_action( 'xpayments_continue_payment', array( $this, 'continue_payment') );
+
         // admin only
         if ( is_admin() ) {
 
@@ -107,13 +109,13 @@ function unblockForm()
 }
 
     document.addEventListener('DOMContentLoaded', function() {
-// Put this in a document ready event
+
 jQuery( document ).ajaxComplete(function( event, xhr, settings ) {
  
-  if( settings.url.indexOf('update_order_review') > -1 ) {
+  if ( settings.url.indexOf('update_order_review') > -1 ) {
 
      xpSuccess = false;
-    if ('undefined' == typeof window.xpaymentsWidget) {
+     if ('undefined' == typeof window.xpaymentsWidget) {
         window.xpaymentsWidget = new XPaymentsWidget();
         window.xpaymentsWidget.init({
             debug: true,
@@ -178,30 +180,29 @@ HTML;
         $token = stripslashes($_POST['xpaymentsToken']);
 
         $order = wc_get_order( $order_id );
-        $user = $order->get_user();
+
+        $returnUrl = wc_get_endpoint_url( 'xpayments-continue-payment', $order_id, wc_get_page_permalink( 'checkout' ) );
+        if ( 'yes' === get_option( 'woocommerce_force_ssl_checkout' ) || is_ssl() ) {
+            $returnUrl = str_replace( 'http:', 'https:', $returnUrl );
+        }
 
         try {
             $response = $api->doPay(
                 $token,
                 $order->get_order_number(),
-                $user->get_meta('xpayments_customer_id') ?: '',
+                get_user_meta($order->get_customer_id(),'xpayments_customer_id', true) ?: '',
                 $this->prepareCart($order),
-                'https://local.dev',
-                'https://local.dev'
-
-//                $this->getReturnURL(null, true),
-//                $this->getCallbackURL(null, true)
+                $returnUrl,
+                'https://local.dev' // TODO
             );
 
             $payment = $response->getPayment();
             $status = $payment->status;
             $note = $payment->message;
 
-//            $this->processXpaymentsFraudCheckData($this->transaction, $payment);
-
             if (!is_null($response->redirectUrl)) {
                 // Should redirect to continue payment
-//                $this->transaction->setXpaymentsId($payment->xpid);
+                $this->setOrderXpid($order, $payment->xpid);
                 $result = array(
                     'result'   => 'success',
                     'redirect' => $response->redirectUrl,
@@ -210,17 +211,11 @@ HTML;
             } else {
 
                 $result = $this->processPaymentFinish($order, $payment);
-                /*
-                if (static::FAILED == $result) {
-                    TopMessage::addError($note);
+
+                if (!$result) {
+                    $this->setTopError($note);
                 }
-*/
-                $order->payment_complete();
-                WC()->cart->empty_cart();
-                $result = array(
-                    'result'   => 'success',
-                    'redirect' => $this->get_return_url( $order ),
-                );
+
             }
 
         } catch (\XPaymentsCloud\ApiException $exception) {
@@ -231,12 +226,76 @@ HTML;
             if (!$message) {
                 $message = 'Failed to process the payment!';
             }
-            wc_add_notice( __('Payment error:', 'woothemes') . ' ' . $message, 'error' );
+            $this->setTopError($message);
             //WC()->session->reload_checkout = 1;
 
         }
 
         return $result;
+    }
+
+    /**
+     * Process return from 3-D Secure form and complete payment
+     *
+     */
+    public function continue_payment()
+    {
+        $order_id = intval($_GET['xpayments-continue-payment']);
+        $order = wc_get_order( $order_id );
+
+        $xpid = $this->getOrderXpid($order);
+
+        $redirectUrl = wc_get_endpoint_url( '', '', wc_get_page_permalink( 'checkout' ) );
+
+        if ($xpid) {
+
+            $api = $this->initClient();
+
+            try {
+                $response = $api->doContinue(
+                    $xpid
+                );
+
+                $payment = $response->getPayment();
+
+                $result = $this->processPaymentFinish($order, $payment);
+                if ($result) {
+                    $redirectUrl = $result['redirect'];
+                } else {
+                    $message = $payment->message;
+                }
+
+            } catch (\XPaymentsCloud\ApiException $exception) {
+                /*
+                $result = static::FAILED;
+                $note = $exception->getMessage();
+                $this->transaction->setDataCell('xpaymentsMessage', $note, 'Message');
+                // Add note to log, but exact error shouldn't be shown to customer
+                $this->log('Error: ' . $note);
+                TopMessage::addError('Failed to process the payment!');
+                */
+                $message = 'Failed to process the payment!';
+
+
+            }
+/*
+            $this->transaction->setNote($note);
+            $this->transaction->setStatus($result);
+*/
+        } else {
+            // Invalid non-XP transaction
+            $message = 'Transaction was lost';
+        }
+
+        if (!empty($message)) {
+            $this->setTopError($message);
+        }
+        wp_redirect( $redirectUrl );
+        exit;
+    }
+
+    private function setTopError($message) {
+        wc_add_notice( __('Payment error:', 'woothemes') . ' ' . $message, 'error' );
     }
 
     /**
@@ -246,45 +305,6 @@ HTML;
      */
     public function prepareCart(WC_Order $order)
     {
-        /**
-        $payment_via      = $order->get_payment_method_title();
-        $payment_method   = $order->get_payment_method();
-        $payment_gateways = WC()->payment_gateways() ? WC()->payment_gateways->payment_gateways() : array();
-        $transaction_id   = $order->get_transaction_id();
-
-        if ( $transaction_id ) {
-
-        $url = isset( $payment_gateways[ $payment_method ] ) ? $payment_gateways[ $payment_method ]->get_transaction_url( $order ) : false;
-
-        if ( $url ) {
-        $payment_via .= ' (<a href="' . esc_url( $url ) . '" target="_blank">' . esc_html( $transaction_id ) . '</a>)';
-        } else {
-        $payment_via .= ' (' . esc_html( $transaction_id ) . ')';
-        }
-        }
-
-
-        return apply_filters(
-        'woocommerce_admin_order_preview_get_order_details',
-        array(
-        'data'                       => $order->get_data(),
-        'order_number'               => $order->get_order_number(),
-        'item_html'                  => self::get_order_preview_item_html( $order ),
-        'actions_html'               => self::get_order_preview_actions_html( $order ),
-        'ship_to_billing'            => wc_ship_to_billing_address_only(),
-        'needs_shipping'             => $order->needs_shipping_address(),
-        'formatted_billing_address'  => $billing_address ? $billing_address : __( 'N/A', 'woocommerce' ),
-        'formatted_shipping_address' => $shipping_address ? $shipping_address : __( 'N/A', 'woocommerce' ),
-        'shipping_address_map_url'   => $order->get_shipping_address_map_url(),
-        'payment_via'                => $payment_via,
-        'shipping_via'               => $order->get_shipping_method(),
-        'status'                     => $order->get_status(),
-        'status_name'                => wc_get_order_status_name( $order->get_status() ),
-        ),
-        $order
-        );
-         */
-
         $description = 'Order #' . $order->get_order_number();
 
         $merchantEmail = sanitize_email( get_option( 'woocommerce_email_from_address' ) );
@@ -366,6 +386,14 @@ HTML;
         return $result;
     }
 
+    protected function setOrderXpid(WC_Order $order, $xpid) {
+        $order->add_meta_data('xpayments_xpid', $xpid, true);
+        $order->save_meta_data();
+    }
+
+    protected function getOrderXpid(WC_Order $order) {
+        return $order->get_meta('xpayments_xpid');
+    }
     /**
      * Round currency
      *
@@ -440,23 +468,39 @@ HTML;
      * @param WC_Order $order
      * @param \XPaymentsCloud\Model\Payment $payment
      *
-     * @return string
+     * @return array
      */
     private function processPaymentFinish(WC_Order $order, XpPayment $payment)
     {
+        $result = array();
+
+        $this->setTransactionDataCells($order, $payment);
 
         if ($payment->customerId) {
             update_user_meta($order->get_user_id(), 'xpayments_customer_id', $payment->customerId);
         }
+
+        $status = $payment->status;
+
+        if (
+            XpPayment::AUTH == $status
+            || XpPayment::CHARGED == $status
+        ) {
+            $order->payment_complete();
+            WC()->cart->empty_cart();
+
+            $result = array(
+                'result'   => 'success',
+                'redirect' => $this->get_return_url( $order ),
+            );
+
+        }
+
+        return $result;
         /*
-        $this->setTransactionDataCells($transaction, $payment);
 
         if ($payment->initialTransactionId) {
             $transaction->setPublicId($payment->initialTransactionId . ' (' . $transaction->getPublicId() . ')');
-        }
-
-        if ($payment->customerId) {
-            $transaction->getOrigProfile()->setXpaymentsCustomerId($payment->customerId);
         }
 
         $status = $payment->status;
@@ -481,6 +525,104 @@ HTML;
         */
     }
 
+
+    /**
+     * Sets all required transaction data cells for further operations
+     *
+     * @param WC_Order $order
+     * @param \XPaymentsCloud\Model\Payment $payment
+     */
+    private function setTransactionDataCells(WC_Order $order, XpPayment $payment)
+    {
+        $this->setOrderXpid($order, $payment->xpid);
+
+        /*
+        $transaction->setDataCell('xpaymentsMessage', $payment->message, 'Message');
+
+        $actions = [
+            'capture' => 'Capture',
+            'void' => 'Void',
+            'refund' => 'Refund',
+        ];
+
+        foreach ($actions as $action => $cellName) {
+            $can = ($payment->isTransactionSupported($action)) ? static::ACTION_ALLOWED : static::ACTION_NOTALLOWED;
+            if (static::ACTION_ALLOWED == $can) {
+                if ($payment->isTransactionSupported($action . 'Multi')) {
+                    $can = static::ACTION_MULTI;
+                } elseif ($payment->isTransactionSupported($action . 'Part')) {
+                    $can = static::ACTION_PART;
+                }
+            }
+            $transaction->setDataCell('xpayments' . $cellName, $can, $cellName);
+
+        }
+
+        if (is_object($payment->details)) {
+
+            // Set payment details i.e. something that returned from the gateway
+
+            $details = get_object_vars($payment->details);
+
+            foreach ($details as $title => $value) {
+                if (!empty($value) && !preg_match('/(\[Kount\]|\[NoFraud\]|\[Signifyd\])/i', $title)) {
+                    $name = $this->getTransactionDataCellName($title, 'xpaymentsDetails.');
+                    $transaction->setDataCell($name, $value, $title);
+                }
+            }
+        }
+
+        if (is_object($payment->verification)) {
+
+            // Set verification (AVS and CVV)
+
+            if (!empty($payment->verification->avsRaw)) {
+                $transaction->setDataCell('xpaymentsAvsResult', $value, 'AVS Check Result');
+            }
+
+            if (!empty($payment->verification->cvvRaw)) {
+                $transaction->setDataCell('xpaymentsCvvResult', $value, 'CVV Check Result');
+            }
+        }
+
+        if (is_object($payment->card)) {
+
+            // Set masked card details
+
+            $transaction->setDataCell(
+                'xpaymentsCardNumber',
+                sprintf('%s******%s', $payment->card->first6, $payment->card->last4),
+                'Card number',
+                'C'
+            );
+
+            $transaction->setDataCell(
+                'xpaymentsCardExpirationDate',
+                sprintf('%s/%s', $payment->card->expireMonth, $payment->card->expireYear),
+                'Card number',
+                'C'
+            );
+
+            $transaction->setDataCell(
+                'xpaymentsCardType',
+                $payment->card->type,
+                'Card type',
+                'C'
+            );
+
+            $transaction->setDataCell(
+                'xpaymentsCardholder',
+                $payment->card->type,
+                'Cardholder name',
+                'C'
+            );
+        }
+        */
+    }
+
+    /**
+     * Set initial payment transaction status by response status
+     *
 
     /*
      * Load X-Payments Cloud SDK
