@@ -7,6 +7,7 @@ use XPaymentsCloud\Model\Payment as XpPayment;
 
 class WC_XPaymentsCloud extends WC_Payment_Gateway
 {
+    private $logger;
 
     function __construct()
     {
@@ -15,10 +16,13 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
         $this->method_description = 'Here will be description';
         $this->has_fields = true;
 
+        $this->logger = wc_get_logger();
+
         $this->init_form_fields();
         $this->init_settings();
 
         add_action( 'xpayments_continue_payment', array( $this, 'continue_payment') );
+        add_action( 'xpayments_process_callback', array( $this, 'process_callback') );
 
         // admin only
         if ( is_admin() ) {
@@ -78,6 +82,7 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
         $widgetKey = $this->get_option( 'widget_key' );
         $total = $this->get_order_total();
         $currency = get_woocommerce_currency();
+        $paymentId = $this->id;
 
 
         $customerId = WC()->customer->get_meta('xpayments_customer_id') ?: '';
@@ -99,6 +104,7 @@ function blockForm()
         });
     }
 }
+
 function unblockForm()
 {
     var form = jQuery('form.checkout');
@@ -108,12 +114,16 @@ function unblockForm()
     }
 }
 
-    document.addEventListener('DOMContentLoaded', function() {
+function xpTopMessage(message, type)
+{
+    jQuery('.woocommerce-error, .woocommerce-message').remove();
+    var form = jQuery('form.checkout');
+    form.prepend(jQuery('<ul class="woocommerce-' + type + '"><li>' + message + '</li></ul>'));
+    jQuery.scroll_to_notices(form);
+ //   jQuery( 'html, body' ).animate( { scrollTop: @form.offset().top - 100 }, 1000 )
+}
 
-jQuery( document ).ajaxComplete(function( event, xhr, settings ) {
- 
-  if ( settings.url.indexOf('update_order_review') > -1 ) {
-
+function loadXpaymentsWidget() {
      xpSuccess = false;
      if ('undefined' == typeof window.xpaymentsWidget) {
         window.xpaymentsWidget = new XPaymentsWidget();
@@ -134,7 +144,7 @@ jQuery( document ).ajaxComplete(function( event, xhr, settings ) {
             if (formElm) {
                 var input = document.createElement('input');
                 input.type = 'hidden';
-                input.name = 'xpaymentsToken';
+                input.name = input.id = 'xpayments_token';
                 input.value = params.token;
                 formElm.appendChild(input);
                 xpSuccess = true;
@@ -142,29 +152,55 @@ jQuery( document ).ajaxComplete(function( event, xhr, settings ) {
                 xpSuccess = false;
             }
         }).on('formSubmit', function (e) {
-            if (!xpSuccess) {
+            if (!jQuery('#payment_method_$paymentId').is(':checked')) {
+                // not XP payment method
+                return true;
+            }
+            if (
+                !xpSuccess
+                && 'undefined' !== typeof window.xpaymentsWidget
+                && window.xpaymentsWidget.isValid()
+            ) {
                 blockForm();
                 this.submit();
                 e.preventDefault();
             }
         }).on('fail', function() {
             unblockForm();
+        }).on('alert', function(params) {
+            if ('popup' === params.type) {
+                alert(params.message);
+            } else {
+                xpTopMessage(params.message, ('popup' === params.type ? 'message' : 'error'));
+            }
         });
         
         jQuery('form.checkout').on('checkout_place_order_xpayments_cloud', function() {
             return xpSuccess;
         });
-        jQuery( document.body ).on('updated_checkout', function(data) {
-// why not triggering?
+        jQuery('#payment_method_$paymentId').click(function() {
+            if (0 == jQuery('#xpayments-container iframe').height()) {
+                window.xpaymentsWidget.showSaveCard()
+            }
         });
         
     }
-        window.xpaymentsWidget.load();
-        
-  }
+    window.xpaymentsWidget.load();
+    
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    jQuery( document ).ajaxComplete(function( event, xhr, settings ) {
  
-});
+        if ( settings.url.indexOf('update_order_review') > -1 ) {
+            loadXpaymentsWidget();        
+        } else if ( settings.url.indexOf('wc-ajax=checkout') > -1 ) {
+            jQuery('#xpayments_token').remove();
+        }
+ 
     });
+});
 </script>
 <div id="xpayments-container"></div>
 HTML;
@@ -174,17 +210,16 @@ HTML;
 
     public function process_payment($order_id) {
 
-
         $api = $this->initClient();
 
-        $token = stripslashes($_POST['xpaymentsToken']);
+        $token = stripslashes($_POST['xpayments_token']);
 
         $order = wc_get_order( $order_id );
 
         $returnUrl = wc_get_endpoint_url( 'xpayments-continue-payment', $order_id, wc_get_page_permalink( 'checkout' ) );
-        if ( 'yes' === get_option( 'woocommerce_force_ssl_checkout' ) || is_ssl() ) {
-            $returnUrl = str_replace( 'http:', 'https:', $returnUrl );
-        }
+        $returnUrl = str_replace( 'http:', 'https:', $returnUrl );
+        $callbackUrl = wc_get_endpoint_url( 'xpayments-callback', $order_id, wc_get_page_permalink( 'checkout' ) );
+        $callbackUrl = str_replace( 'http:', 'https:', $callbackUrl );
 
         try {
             $response = $api->doPay(
@@ -193,7 +228,7 @@ HTML;
                 get_user_meta($order->get_customer_id(),'xpayments_customer_id', true) ?: '',
                 $this->prepareCart($order),
                 $returnUrl,
-                'https://local.dev' // TODO
+                $callbackUrl
             );
 
             $payment = $response->getPayment();
@@ -220,14 +255,13 @@ HTML;
 
         } catch (\XPaymentsCloud\ApiException $exception) {
             $result = array();
-//            $note = $exception->getMessage();
-//            $this->log('Error: ' . $note);
+            $note = $exception->getMessage();
+            $this->log('Error: ' . $note);
             $message = $exception->getPublicMessage();
             if (!$message) {
                 $message = 'Failed to process the payment!';
             }
             $this->setTopError($message);
-            //WC()->session->reload_checkout = 1;
 
         }
 
@@ -236,7 +270,6 @@ HTML;
 
     /**
      * Process return from 3-D Secure form and complete payment
-     *
      */
     public function continue_payment()
     {
@@ -266,17 +299,11 @@ HTML;
                 }
 
             } catch (\XPaymentsCloud\ApiException $exception) {
-                /*
-                $result = static::FAILED;
+
                 $note = $exception->getMessage();
-                $this->transaction->setDataCell('xpaymentsMessage', $note, 'Message');
                 // Add note to log, but exact error shouldn't be shown to customer
                 $this->log('Error: ' . $note);
-                TopMessage::addError('Failed to process the payment!');
-                */
                 $message = 'Failed to process the payment!';
-
-
             }
 /*
             $this->transaction->setNote($note);
@@ -292,6 +319,15 @@ HTML;
         }
         wp_redirect( $redirectUrl );
         exit;
+    }
+
+    /**
+     * Process callbacks from X-P
+     *
+     */
+    public function process_callback()
+    {
+        //TODO: implement
     }
 
     private function setTopError($message) {
@@ -621,8 +657,15 @@ HTML;
     }
 
     /**
-     * Set initial payment transaction status by response status
+     * Logging method.
      *
+     * @param string $message Log message.
+     * @param string $level Optional. Default 'info'. Possible values:
+     *                      emergency|alert|critical|error|warning|notice|info|debug.
+     */
+    public function log( $message, $level = 'info' ) {
+        self::$logger->log( $level, $message, array( 'source' => $this->id ) );
+    }
 
     /*
      * Load X-Payments Cloud SDK

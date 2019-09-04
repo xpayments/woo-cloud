@@ -19,10 +19,14 @@ function add_xpayments_gateway_class( $methods ) {
 }
 
 function check_for_xpayments_return() {
-    if( isset($_GET['xpayments-continue-payment']) ) {
+    if ( isset($_GET['xpayments-continue-payment']) ) {
         // Start the gateways
         WC()->payment_gateways();
         do_action( 'xpayments_continue_payment' );
+    } else if ( isset($_GET['xpayments-callback']) ) {
+        // Start the gateways
+        WC()->payment_gateways();
+        do_action('xpayments_process_callback');
     }
 
 }
