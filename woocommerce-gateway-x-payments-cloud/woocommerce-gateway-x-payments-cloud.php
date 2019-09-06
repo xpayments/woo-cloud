@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: WooCommerce X-Payments Cloud
- * Description: This module integrates your store with X-Payments Cloud
- * Version: 1.0.0
+ * Plugin Name: WooCommerce X-Payments Cloud (Beta)
+ * Description: This module integrates X-Payments Cloud into your store
+ * Version: 0.1.0
  * Author: X-Cart Payments
  * Author URI: https://x-payments.com
  */
@@ -14,7 +14,7 @@ function init_xpayments_plugin() {
 }
 
 function add_xpayments_gateway_class( $methods ) {
-    $methods[] = 'WC_XPaymentsCloud';
+    $methods[] = 'WC_Gateway_XPaymentsCloud';
     return $methods;
 }
 
@@ -23,15 +23,11 @@ function check_for_xpayments_return() {
         // Start the gateways
         WC()->payment_gateways();
         do_action( 'xpayments_continue_payment' );
-    } else if ( isset($_GET['xpayments-callback']) ) {
-        // Start the gateways
-        WC()->payment_gateways();
-        do_action('xpayments_process_callback');
     }
-
 }
 
 add_action( 'plugins_loaded', 'init_xpayments_plugin' );
 add_action( 'init', 'check_for_xpayments_return' );
 
 add_filter( 'woocommerce_payment_gateways', 'add_xpayments_gateway_class' );
+add_action( 'woocommerce_api_wc_gateway_xpaymentscloud', array( 'WC_Gateway_XPaymentsCloud', 'process_callback' ) );

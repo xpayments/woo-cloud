@@ -5,7 +5,7 @@
 
 use XPaymentsCloud\Model\Payment as XpPayment;
 
-class WC_XPaymentsCloud extends WC_Payment_Gateway
+class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
 {
     private $logger;
 
@@ -13,7 +13,7 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
     {
         $this->id = 'xpayments_cloud';
         $this->method_title = 'X-Payments Cloud';
-        $this->method_description = 'Here will be description';
+        $this->method_description = 'Accept Credit or Debit cards via X-Payments Cloud, a PCI-DSS Level 1 Certified service.';
         $this->has_fields = true;
 
         $this->logger = wc_get_logger();
@@ -22,7 +22,6 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
         $this->init_settings();
 
         add_action( 'xpayments_continue_payment', array( $this, 'continue_payment') );
-        add_action( 'xpayments_process_callback', array( $this, 'process_callback') );
 
         // admin only
         if ( is_admin() ) {
@@ -75,7 +74,7 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
 
     public function payment_fields()
     {
-        wp_enqueue_script( 'xpayments_widget_js', plugins_url( 'assets/js/widget.js', __FILE__ ), array(), '1.0.0' );
+        wp_enqueue_script( 'xpayments_widget_js', plugins_url( 'assets/js/widget.js', __FILE__ ), array(), '0.1.0' );
 //wp_enqueue_style('xpayments_widget_css', plugins_url( 'assets/css/widget.css', __FILE__ ));
 
         $account = $this->get_option( 'account' );
@@ -88,123 +87,8 @@ class WC_XPaymentsCloud extends WC_Payment_Gateway
         $customerId = WC()->customer->get_meta('xpayments_customer_id') ?: '';
         $showSaveCard = WC()->customer->get_id() ? 'true' : 'false';
 
-        echo <<<HTML
-<script>
-function blockForm()
-{
-    var form = jQuery('form.checkout');
-
-    if ( 1 !== form.data('blockUI.isBlocked') ) {
-        form.block({
-            message: null,
-            overlayCSS: {
-                background: '#fff',
-                opacity: 0.6
-            }
-        });
-    }
-}
-
-function unblockForm()
-{
-    var form = jQuery('form.checkout');
-
-    if ( 1 === form.data('blockUI.isBlocked') ) {
-        form.unblock();
-    }
-}
-
-function xpTopMessage(message, type)
-{
-    jQuery('.woocommerce-error, .woocommerce-message').remove();
-    var form = jQuery('form.checkout');
-    form.prepend(jQuery('<ul class="woocommerce-' + type + '"><li>' + message + '</li></ul>'));
-    jQuery.scroll_to_notices(form);
- //   jQuery( 'html, body' ).animate( { scrollTop: @form.offset().top - 100 }, 1000 )
-}
-
-function loadXpaymentsWidget() {
-     xpSuccess = false;
-     if ('undefined' == typeof window.xpaymentsWidget) {
-        window.xpaymentsWidget = new XPaymentsWidget();
-        window.xpaymentsWidget.init({
-            debug: true,
-            account: '$account',
-            widgetKey: '$widgetKey',
-            container: '#xpayments-container',
-            form: 'form.checkout',
-            showSaveCard: '$showSaveCard',
-            customerId: '$customerId',
-            order: {
-                currency: '$currency',
-                total: '$total'
-            },
-        }).on('success', function (params) {
-            var formElm = this.getFormElm();
-            if (formElm) {
-                var input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = input.id = 'xpayments_token';
-                input.value = params.token;
-                formElm.appendChild(input);
-                xpSuccess = true;
-                jQuery(formElm).submit();
-                xpSuccess = false;
-            }
-        }).on('formSubmit', function (e) {
-            if (!jQuery('#payment_method_$paymentId').is(':checked')) {
-                // not XP payment method
-                return true;
-            }
-            if (
-                !xpSuccess
-                && 'undefined' !== typeof window.xpaymentsWidget
-                && window.xpaymentsWidget.isValid()
-            ) {
-                blockForm();
-                this.submit();
-                e.preventDefault();
-            }
-        }).on('fail', function() {
-            unblockForm();
-        }).on('alert', function(params) {
-            if ('popup' === params.type) {
-                alert(params.message);
-            } else {
-                xpTopMessage(params.message, ('popup' === params.type ? 'message' : 'error'));
-            }
-        });
-        
-        jQuery('form.checkout').on('checkout_place_order_xpayments_cloud', function() {
-            return xpSuccess;
-        });
-        jQuery('#payment_method_$paymentId').click(function() {
-            if (0 == jQuery('#xpayments-container iframe').height()) {
-                window.xpaymentsWidget.showSaveCard()
-            }
-        });
-        
-    }
-    window.xpaymentsWidget.load();
-    
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-
-    jQuery( document ).ajaxComplete(function( event, xhr, settings ) {
- 
-        if ( settings.url.indexOf('update_order_review') > -1 ) {
-            loadXpaymentsWidget();        
-        } else if ( settings.url.indexOf('wc-ajax=checkout') > -1 ) {
-            jQuery('#xpayments_token').remove();
-        }
- 
-    });
-});
-</script>
-<div id="xpayments-container"></div>
-HTML;
-
+        // Display payment form
+        require $this->get_plugin_path() . '/includes/payment-form.php';
 
     }
 
@@ -218,8 +102,8 @@ HTML;
 
         $returnUrl = wc_get_endpoint_url( 'xpayments-continue-payment', $order_id, wc_get_page_permalink( 'checkout' ) );
         $returnUrl = str_replace( 'http:', 'https:', $returnUrl );
-        $callbackUrl = wc_get_endpoint_url( 'xpayments-callback', $order_id, wc_get_page_permalink( 'checkout' ) );
-        $callbackUrl = str_replace( 'http:', 'https:', $callbackUrl );
+
+        $callbackUrl = str_replace( 'http:', 'https:', add_query_arg( 'wc-api', get_class($this), home_url( '/' ) ) );
 
         try {
             $response = $api->doPay(
@@ -430,6 +314,21 @@ HTML;
     protected function getOrderXpid(WC_Order $order) {
         return $order->get_meta('xpayments_xpid');
     }
+
+    /**
+     * Returns path to plugin without a trailing slash
+     * @return string
+     */
+    public function get_plugin_path() {
+        static $path = null;
+
+        if (is_null($path)) {
+            $path = plugin_dir_path( __FILE__ );
+        }
+
+        return $path;
+    }
+
     /**
      * Round currency
      *
@@ -533,32 +432,6 @@ HTML;
         }
 
         return $result;
-        /*
-
-        if ($payment->initialTransactionId) {
-            $transaction->setPublicId($payment->initialTransactionId . ' (' . $transaction->getPublicId() . ')');
-        }
-
-        $status = $payment->status;
-
-        if (
-            XpPayment::AUTH == $status
-            || XpPayment::CHARGED == $status
-        ) {
-            $result = static::COMPLETED;
-            $this->setTransactionTypeByStatus($transaction, $status);
-
-        } elseif (
-            XpPayment::DECLINED == $status
-        ) {
-            $result = static::FAILED;
-
-        } else {
-            $result = static::PENDING;
-        }
-
-        return $result;
-        */
     }
 
 
@@ -592,66 +465,6 @@ HTML;
             }
             $transaction->setDataCell('xpayments' . $cellName, $can, $cellName);
 
-        }
-
-        if (is_object($payment->details)) {
-
-            // Set payment details i.e. something that returned from the gateway
-
-            $details = get_object_vars($payment->details);
-
-            foreach ($details as $title => $value) {
-                if (!empty($value) && !preg_match('/(\[Kount\]|\[NoFraud\]|\[Signifyd\])/i', $title)) {
-                    $name = $this->getTransactionDataCellName($title, 'xpaymentsDetails.');
-                    $transaction->setDataCell($name, $value, $title);
-                }
-            }
-        }
-
-        if (is_object($payment->verification)) {
-
-            // Set verification (AVS and CVV)
-
-            if (!empty($payment->verification->avsRaw)) {
-                $transaction->setDataCell('xpaymentsAvsResult', $value, 'AVS Check Result');
-            }
-
-            if (!empty($payment->verification->cvvRaw)) {
-                $transaction->setDataCell('xpaymentsCvvResult', $value, 'CVV Check Result');
-            }
-        }
-
-        if (is_object($payment->card)) {
-
-            // Set masked card details
-
-            $transaction->setDataCell(
-                'xpaymentsCardNumber',
-                sprintf('%s******%s', $payment->card->first6, $payment->card->last4),
-                'Card number',
-                'C'
-            );
-
-            $transaction->setDataCell(
-                'xpaymentsCardExpirationDate',
-                sprintf('%s/%s', $payment->card->expireMonth, $payment->card->expireYear),
-                'Card number',
-                'C'
-            );
-
-            $transaction->setDataCell(
-                'xpaymentsCardType',
-                $payment->card->type,
-                'Card type',
-                'C'
-            );
-
-            $transaction->setDataCell(
-                'xpaymentsCardholder',
-                $payment->card->type,
-                'Cardholder name',
-                'C'
-            );
         }
         */
     }
