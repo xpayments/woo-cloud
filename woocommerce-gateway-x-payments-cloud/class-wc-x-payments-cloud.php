@@ -30,12 +30,69 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
             add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
         }
 
-        $this->title = $this->get_option( 'title' );
+        $this->title = 'Credit or Debit card by X-Payments';
+//        $this->title = $this->get_option( 'title' );
+
+    }
+
+    /**
+     * Output the admin options table.
+     */
+    public function admin_options() {
+        global $hide_save_button;
+        $hide_save_button = true;
+
+        wp_enqueue_script( 'xpayments_connect_js', plugins_url( 'assets/js/connect.js', __FILE__ ), array(), '0.1.0' );
+        wp_enqueue_style('xpayments_connect_css', plugins_url( 'assets/css/connect.css', __FILE__ ));
+
+        $account = $this->get_option( 'account' );
+        $quickaccessKey = $this->get_option( 'quickaccess_key' );
+
+        echo '<h2>' . esc_html( $this->get_method_title() );
+        wc_back_link( __( 'Return to payments', 'woocommerce' ), admin_url( 'admin.php?page=wc-settings&tab=checkout' ) );
+        echo '</h2>';
+//        echo '<table class="form-table">' . $this->generate_settings_html( $this->get_form_fields(), false ) . '</table>';
+        echo <<<HTML
+<table class="form-table">
+<div id="xpayments-iframe-container" style="">
+</div>
+</table>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    var widget = new XPaymentsConnect();
+
+    widget.init({
+      container: '#xpayments-iframe-container',
+      topElement: '#mainform',
+      quickAccessKey: '$quickaccessKey',
+      account: '$account',
+    }).on('alert', function(params) {
+      alert(params.message);
+    }).on('config', function(params) {
+      var data = {};
+      data['woocommerce_xpayments_cloud_account'] = params.account;
+      data['woocommerce_xpayments_cloud_api_key'] = params.apiKey;
+      data['woocommerce_xpayments_cloud_secret_key'] = params.secretKey;
+      data['woocommerce_xpayments_cloud_widget_key'] = params.widgetKey;
+      data['woocommerce_xpayments_cloud_quickaccess_key'] = params.quickAccessKey;
+      data['save'] = '1';
+      data['_wpnonce'] = jQuery('#_wpnonce').val();
+      
+      jQuery.post(document.location.href, data);  
+    });
+    widget.load();
+  });
+
+</script>
+
+HTML;
 
     }
 
     function init_form_fields() {
         $this->form_fields = array(
+/*
             'enabled' => array(
                 'title' => __( 'Enable/Disable', 'woocommerce' ),
                 'type' => 'checkbox',
@@ -49,6 +106,7 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
                 'default' => __( 'Credit or Debit card by X-Payments', 'woocommerce' ),
                 'desc_tip'      => true,
             ),
+*/
             'account' => array(
                 'title' => __( 'X-Payments Account', 'woocommerce' ),
                 'type' => 'text',
@@ -75,7 +133,6 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
     public function payment_fields()
     {
         wp_enqueue_script( 'xpayments_widget_js', plugins_url( 'assets/js/widget.js', __FILE__ ), array(), '0.1.0' );
-//wp_enqueue_style('xpayments_widget_css', plugins_url( 'assets/css/widget.css', __FILE__ ));
 
         $account = $this->get_option( 'account' );
         $widgetKey = $this->get_option( 'widget_key' );
