@@ -7,13 +7,23 @@ use XPaymentsCloud\Model\Payment as XpPayment;
 
 class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
 {
+    /*
+     * Allowed secondary actions status values for transactions
+     */
+    const ACTION_ALLOWED = 'Yes';
+    const ACTION_PART = 'Yes, partial';
+    const ACTION_MULTI = 'Yes, multiple';
+    const ACTION_NOTALLOWED = 'No';
+
     private $logger;
 
     function __construct()
     {
         $this->id = 'xpayments_cloud';
         $this->method_title = 'X-Payments Cloud';
-        $this->method_description = 'Accept Credit or Debit cards via X-Payments Cloud, a PCI-DSS Level 1 Certified service.';
+        $this->method_description =
+            'Process and store credit cards right on your website, accept recurring payments and reorders. '
+            . 'X-Payments will take the PSD2/SCA & PCI DSS burden off your shoulders.';
         $this->has_fields = true;
 
         $this->logger = wc_get_logger();
@@ -25,6 +35,9 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
 
         // admin only
         if ( is_admin() ) {
+// TODO: implement Capture button
+//            add_action( 'woocommerce_order_item_add_action_buttons', array( $this, 'add_capture_button' ) );
+//            add_action( 'wp_ajax_wc_' . $this->id . '_capture_charge', array( $this, 'ajax_process_capture' ) );
 
             // save settings
             add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
@@ -32,6 +45,10 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
 
         $this->title = 'Credit or Debit card by X-Payments';
 //        $this->title = $this->get_option( 'title' );
+
+        $this->supports = array(
+            'refunds',
+        );
 
     }
 
@@ -212,8 +229,7 @@ HTML;
     /**
      * Process return from 3-D Secure form and complete payment
      */
-    public function continue_payment()
-    {
+    public function continue_payment() {
         $order_id = intval($_GET['xpayments-continue-payment']);
         $order = wc_get_order( $order_id );
 
@@ -262,14 +278,146 @@ HTML;
         exit;
     }
 
+    public function process_secondary( $action, $order_id, $amount = 0) {
+
+        $xpid = $this->getOrderXpid($order_id);
+
+        $result = false;
+
+        if ($xpid) {
+
+            try {
+                $api = $this->initClient();
+                $methodName = 'do' . ucfirst($action);
+                $response = $api->$methodName(
+                    $xpid,
+                    $amount
+                );
+
+                $result = (bool)$response->result;
+                if (!$result) {
+                    throw new \XPaymentsCloud\ApiException($response->message ?: 'Operation failed');
+                }
+            } catch (\XPaymentsCloud\ApiException $exception) {
+                $this->log('Error: ' . $exception->getMessage());
+                throw $exception;
+            }
+
+        }
+        return $result;
+    }
+
+    public function process_refund( $order_id, $amount = null, $reason = '' ) {
+        // Do not catch exception here because it is handled by wc_refund_payment()
+        return $this->process_secondary('refund', $order_id, $amount);
+    }
+
+    /**
+     * Processes a capture via AJAX
+     */
+    public function ajax_process_capture() {
+
+        check_ajax_referer( 'wc_' . $this->id . '_capture_charge', 'nonce' );
+
+        try {
+
+            $order_id = $_GET[ 'post' ];
+            $order    = wc_get_order( $order_id );
+
+            if ( ! $order ) {
+                throw new Exception( 'Invalid order ID' );
+            }
+
+            if ( ! current_user_can( 'edit_shop_order', $order_id ) ) {
+                throw new Exception( 'Invalid permissions' );
+            }
+
+/*
+            $amount_captured = (float) $gateway->get_order_meta( $order, 'capture_total' );
+
+            if ( SV_WC_Helper::get_request( 'amount' ) ) {
+                $amount = (float) SV_WC_Helper::get_request( 'amount' );
+            } else {
+                $amount = $order->get_total();
+            }
+
+            $result = $gateway->get_capture_handler()->perform_capture( $order, $amount );
+*/
+
+            $this->process_secondary('capture', $order_id);
+
+            // Fail handled by Exception catch
+            wp_send_json_success( array(
+                'message' => html_entity_decode( wp_strip_all_tags( 'Operation successful' ) ), // ensure any HTML tags are removed and the currency symbol entity is decoded
+            ) );
+
+        } catch ( Exception $e ) {
+
+            wp_send_json_error( array(
+                'message' => $e->getMessage(),
+            ) );
+        }
+    }
+
+
     /**
      * Process callbacks from X-P
      *
      */
-    public function process_callback()
-    {
+    public function process_callback() {
         //TODO: implement
     }
+
+    public function add_capture_button( WC_Order $order ) {
+
+        $xpid = $this->getOrderXpid($order);
+
+        // Display the button only for XP orders that can be catptured
+        if (
+            !$xpid
+            || self::ACTION_NOTALLOWED == $order->get_meta('xpayments_capture')
+        ) {
+            return;
+        }
+
+
+        $tooltip = '';
+        $classes = array(
+            'button',
+            'wc-' . $this->id . '-capture',
+        );
+
+//            $classes[] = 'button-primary';
+
+        /*
+        // ensure that the authorization is still valid for capture
+        if ( ! $gateway->get_capture_handler()->order_can_be_captured( $order ) ) {
+
+            $classes[] = 'tips disabled';
+
+            // add some tooltip wording explaining why this cannot be captured
+            if ( $gateway->get_capture_handler()->is_order_fully_captured( $order ) ) {
+                $tooltip = __( 'This charge has been fully captured.', 'woocommerce-gateway-paypal-powered-by-braintree' );
+            } elseif ( $gateway->get_order_meta( $order, 'trans_date' ) && $gateway->get_capture_handler()->has_order_authorization_expired( $order ) ) {
+                $tooltip = __( 'This charge can no longer be captured.', 'woocommerce-gateway-paypal-powered-by-braintree' );
+            } else {
+                $tooltip = __( 'This charge cannot be captured.', 'woocommerce-gateway-paypal-powered-by-braintree' );
+            }
+        }
+*/
+        ?>
+
+        <button type="button" class="<?php echo esc_attr( implode( ' ', $classes ) ); ?>" <?php echo ( $tooltip ) ? 'data-tip="' . esc_html( $tooltip ) . '"' : ''; ?>><?php _e( 'Capture Charge', 'woocommerce-gateway-paypal-powered-by-braintree' ); ?></button>
+
+        <?php
+
+        // add the partial capture UI HTML
+/*        if ( $gateway->supports_credit_card_partial_capture() && $gateway->is_partial_capture_enabled() ) {
+            $this->output_partial_capture_html( $order, $gateway );
+        }
+*/
+    }
+
 
     private function setTopError($message) {
         wc_add_notice( __('Payment error:', 'woothemes') . ' ' . $message, 'error' );
@@ -363,12 +511,21 @@ HTML;
         return $result;
     }
 
-    protected function setOrderXpid(WC_Order $order, $xpid) {
+    protected function setOrderXpid(WC_Order $order, $xpid, $autosave = true) {
         $order->add_meta_data('xpayments_xpid', $xpid, true);
-        $order->save_meta_data();
+        if ($autosave) {
+            $order->save_meta_data();
+        }
     }
 
-    protected function getOrderXpid(WC_Order $order) {
+    /**
+     * @param WC_Order|int $order Order object or just order number
+     * @return mixed
+     */
+    protected function getOrderXpid($order) {
+        if (!is_object($order)) {
+            $order = wc_get_order($order);
+        }
         return $order->get_meta('xpayments_xpid');
     }
 
@@ -478,9 +635,12 @@ HTML;
             XpPayment::AUTH == $status
             || XpPayment::CHARGED == $status
         ) {
-            $order->payment_complete();
+            if (XpPayment::AUTH == $status) {
+                $order->update_status('on-hold');
+            } else {
+                $order->payment_complete();
+            }
             WC()->cart->empty_cart();
-
             $result = array(
                 'result'   => 'success',
                 'redirect' => $this->get_return_url( $order ),
@@ -500,10 +660,9 @@ HTML;
      */
     private function setTransactionDataCells(WC_Order $order, XpPayment $payment)
     {
-        $this->setOrderXpid($order, $payment->xpid);
+        $this->setOrderXpid($order, $payment->xpid, false);
 
-        /*
-        $transaction->setDataCell('xpaymentsMessage', $payment->message, 'Message');
+        $order->add_meta_data('xpayments_message', $payment->message, true);
 
         $actions = [
             'capture' => 'Capture',
@@ -512,18 +671,19 @@ HTML;
         ];
 
         foreach ($actions as $action => $cellName) {
-            $can = ($payment->isTransactionSupported($action)) ? static::ACTION_ALLOWED : static::ACTION_NOTALLOWED;
-            if (static::ACTION_ALLOWED == $can) {
+            $can = ($payment->isTransactionSupported($action)) ? self::ACTION_ALLOWED : self::ACTION_NOTALLOWED;
+            if (self::ACTION_ALLOWED == $can) {
                 if ($payment->isTransactionSupported($action . 'Multi')) {
-                    $can = static::ACTION_MULTI;
+                    $can = self::ACTION_MULTI;
                 } elseif ($payment->isTransactionSupported($action . 'Part')) {
-                    $can = static::ACTION_PART;
+                    $can = self::ACTION_PART;
                 }
             }
-            $transaction->setDataCell('xpayments' . $cellName, $can, $cellName);
+            $order->add_meta_data('xpayments_' . $action, $can, true);
 
         }
-        */
+        $order->save_meta_data();
+
     }
 
     /**

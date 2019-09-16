@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: WooCommerce X-Payments Cloud (Beta)
- * Description: This module integrates X-Payments Cloud into your store
- * Version: 0.1.0
+ * Plugin Name: WooCommerce X-Payments Cloud connector (Beta)
+ * Description: Process and store credit cards right on your website, accept recurring payments and reorders. X-Payments will take the PSD2/SCA & PCI DSS burden off your shoulders.
+ * Version: 0.2.0
  * Author: X-Cart Payments
  * Author URI: https://x-payments.com
  */

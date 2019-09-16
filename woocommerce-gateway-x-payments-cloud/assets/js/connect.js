@@ -13,6 +13,7 @@ function XPaymentsConnect(elmSelector, quickAccessKey, handlers) {
         account: '',
         container: '',
         topElement: '',
+        referrerUrl: document.location.href,
         quickAccessKey: ''
     }
 
@@ -93,8 +94,9 @@ XPaymentsConnect.prototype.load = function()
 
     elm.src =
         'https://' + this.getServerHost() + '/' +
-        '?shop=' + encodeURIComponent(document.location.hostname) +
-        '&quickaccess=' + this.config.quickAccessKey;
+        '?ref=' + encodeURIComponent(this.config.referrerUrl) +
+        '&account=' + encodeURIComponent(this.config.account) +
+        '&quickaccess=' + encodeURIComponent(this.config.quickAccessKey);
 
 }
 
