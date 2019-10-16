@@ -34,7 +34,7 @@ class Response
             || empty($fields)
             || !is_array($fields)
         ) {
-            throw new ApiException('Invalid response', 403);
+            throw new ApiException('Invalid response signature', 403);
         }
 
         if (

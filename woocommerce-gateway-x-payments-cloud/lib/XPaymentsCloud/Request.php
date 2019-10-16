@@ -161,7 +161,7 @@ class Request
             $return = $signature;
             $signature = '';
         } else {
-            if (0 === strpos($args[1], Signature::HEADER)) {
+            if (0 === stripos($args[1], Signature::HEADER)) {
                 $signature = substr(trim($args[1]), strlen(Signature::HEADER) + 2);
             }
             $return = strlen($args[1]);
