@@ -694,7 +694,7 @@ HTML;
      *                      emergency|alert|critical|error|warning|notice|info|debug.
      */
     public function log( $message, $level = 'info' ) {
-        self::$logger->log( $level, $message, array( 'source' => $this->id ) );
+        $this->logger->log( $level, $message, array( 'source' => $this->id ) );
     }
 
     /*
