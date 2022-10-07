@@ -8,10 +8,32 @@
 
 namespace XPaymentsCloud;
 
+use XPaymentsCloud\Model\Subscription;
+
 class Response
 {
+    /**
+     * Transaction status codes
+     */
+    const UNKNOWN_STATUS    = 0;
+    const SUCCESS_STATUS    = 1;
+    const DECLINED_STATUS   = 2;
+    const ERROR_STATUS      = 3;
+    const WARNING_STATUS    = 4;
+    const PENDING_STATUS    = 5;
+    const INPROGRESS_STATUS = 6;
+
+    /**
+     * Result codes
+     */
+    const RESULT_FAIL     = 0;
+    const RESULT_SUCCESS  = 1;
+    const RESULT_REDIRECT = 2;
+
     private $fields;
     private $payment = null;
+    private $subscription = null;
+    private $subscriptions = [];
 
     /**
      * Response constructor.
@@ -28,6 +50,10 @@ class Response
         // Parse and validate response
         $signatureLocal = Signature::get($action, $body, $secretKey);
         $fields = $this->convertJSONToHash($body);
+
+        if (500 === $httpCode) {
+            throw new ApiException('Server returned error: ' . $body, $httpCode);
+        }
 
         if (
             0 !== strcmp($signatureLocal, $signature)
@@ -55,6 +81,22 @@ class Response
             $this->payment = new \XPaymentsCloud\Model\Payment($fields['payment']);
             unset($fields['payment']);
         }
+
+        if (!empty($fields['subscription'])) {
+            $this->subscription = new Subscription($fields['subscription']);
+            unset($fields['subscription']);
+        }
+
+        if (
+            !empty($fields['subscriptions'])
+            && is_array($fields['subscriptions'])
+        ) {
+            foreach ($fields['subscriptions'] as $subscription) {
+                $this->subscriptions[] = new Subscription($subscription);
+            }
+            unset($fields['subscriptions']);
+        }
+
         $this->fields = $fields;
     }
 
@@ -86,4 +128,39 @@ class Response
     {
         return $this->payment;
     }
+
+    /**
+     * Check if last transaction was successful
+     *
+     * @return bool
+     */
+    public function isLastTransactionSuccessful()
+    {
+        return !is_null($this->result)
+            && in_array(
+                $this->result,
+                array(
+                    self::SUCCESS_STATUS,
+                    self::WARNING_STATUS,
+                    self::PENDING_STATUS,
+                )
+            );
+    }
+
+    /**
+     * @return Subscription[]
+     */
+    public function getSubscriptions()
+    {
+        return $this->subscriptions;
+    }
+
+    /**
+     * @return Subscription
+     */
+    public function getSubscription()
+    {
+        return $this->subscription;
+    }
+
 }

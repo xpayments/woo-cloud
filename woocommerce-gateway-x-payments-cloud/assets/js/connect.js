@@ -3,6 +3,7 @@
  */
 
 function XPaymentsConnect(elmSelector, quickAccessKey, handlers) {
+    this.jsApiVersion = '2.0';
     this.serverDomain = 'xpayments.com';
     this.messageNamespace = 'xpayments.connect.';
 
@@ -14,6 +15,7 @@ function XPaymentsConnect(elmSelector, quickAccessKey, handlers) {
         container: '',
         topElement: '',
         referrerUrl: document.location.href,
+        applePayOnly: false,
         quickAccessKey: ''
     }
 
@@ -92,12 +94,17 @@ XPaymentsConnect.prototype.load = function()
     elm.setAttribute('scrolling', 'no')
     containerElm.appendChild(elm);
 
-    elm.src =
-        'https://' + this.getServerHost() + '/' +
+    elm.src = this.getRedirectUrl();
+
+}
+
+XPaymentsConnect.prototype.getRedirectUrl = function()
+{
+    return 'https://' + this.getServerHost() + '/' +
         '?ref=' + encodeURIComponent(this.config.referrerUrl) +
         '&account=' + encodeURIComponent(this.config.account) +
+        '&api_version=' + encodeURIComponent(this.jsApiVersion) +
         '&quickaccess=' + encodeURIComponent(this.config.quickAccessKey);
-
 }
 
 XPaymentsConnect.prototype.on = function(event, handler)
@@ -172,8 +179,7 @@ XPaymentsConnect.prototype.postMessage = function(message)
     }
 }
 
-XPaymentsConnect.prototype.log = function(msg)
-{
+XPaymentsConnect.prototype.log = function(msg) {
     if (this.config.debug) {
         console.log(msg);
     }

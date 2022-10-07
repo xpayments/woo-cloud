@@ -11,7 +11,7 @@ namespace XPaymentsCloud;
 class Request
 {
     const XP_DOMAIN = 'xpayments.com';
-    const API_VERSION = '4.0';
+    const API_VERSION = '4.7';
 
     private $connectionTimeout = 120;
 
@@ -83,7 +83,13 @@ class Request
      */
     private function getServerHost()
     {
-        return $this->account . '.' . static::XP_DOMAIN;
+        $host = $this->account . '.' . static::XP_DOMAIN;
+
+        if (defined('XPAYMENTS_SDK_DEBUG_SERVER_HOST')) {
+            $host = constant('XPAYMENTS_SDK_DEBUG_SERVER_HOST');
+        }
+
+        return $host;
     }
 
     /**
