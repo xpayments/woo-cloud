@@ -50,6 +50,7 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
             'refunds',
         );
 
+        $this->load_sdk();
     }
 
     /**
@@ -59,7 +60,7 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
         global $hide_save_button;
         $hide_save_button = true;
 
-        wp_enqueue_script( 'xpayments_connect_js', plugins_url( 'assets/js/connect.js', __FILE__ ), array(), '0.1.0' );
+        wp_enqueue_script( 'xpayments_connect_js', plugins_url( 'assets/js/connect.js', __FILE__ ), array(), \XPaymentsCloud\Client::SDK_VERSION );
         wp_enqueue_style('xpayments_connect_css', plugins_url( 'assets/css/connect.css', __FILE__ ));
 
         $account = $this->get_option( 'account' );
@@ -149,7 +150,7 @@ HTML;
 
     public function payment_fields()
     {
-        wp_enqueue_script( 'xpayments_widget_js', plugins_url( 'assets/js/widget.js', __FILE__ ), array(), '0.1.0' );
+        wp_enqueue_script( 'xpayments_widget_js', plugins_url( 'assets/js/widget.js', __FILE__ ), array(), \XPaymentsCloud\Client::SDK_VERSION );
 
         $account = $this->get_option( 'account' );
         $widgetKey = $this->get_option( 'widget_key' );
@@ -168,7 +169,7 @@ HTML;
 
     public function process_payment($order_id) {
 
-        $api = $this->initClient();
+        $api = $this->init_client();
 
         $token = stripslashes($_POST['xpayments_token']);
 
@@ -239,7 +240,7 @@ HTML;
 
         if ($xpid) {
 
-            $api = $this->initClient();
+            $api = $this->init_client();
 
             try {
                 $response = $api->doContinue(
@@ -287,7 +288,7 @@ HTML;
         if ($xpid) {
 
             try {
-                $api = $this->initClient();
+                $api = $this->init_client();
                 $methodName = 'do' . ucfirst($action);
                 $response = $api->$methodName(
                     $xpid,
@@ -704,22 +705,24 @@ HTML;
         $this->logger->log( $level, $message, array( 'source' => $this->id ) );
     }
 
-    /*
+    /**
      * Load X-Payments Cloud SDK
+     *
+     * @return void
      */
-    private function loadApi()
+    private function load_sdk()
     {
         require_once( plugin_dir_path( __FILE__ ) . 'lib/XPaymentsCloud/Client.php' );
     }
 
-    /*
+    /**
      * Init SDK Client
      *
      * @return \XPaymentsCloud\Client
      */
-    protected function initClient()
+    protected function init_client()
     {
-        $this->loadApi();
+        $this->load_sdk();
 
         return new \XPaymentsCloud\Client(
             $this->get_option('account'),
