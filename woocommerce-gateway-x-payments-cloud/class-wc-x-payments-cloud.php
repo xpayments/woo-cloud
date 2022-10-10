@@ -43,8 +43,7 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
             add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
         }
 
-        $this->title = 'Credit or Debit card by X-Payments';
-//        $this->title = $this->get_option( 'title' );
+        $this->title = $this->get_option( 'title' );
 
         $this->supports = array(
             'refunds',
@@ -53,28 +52,19 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
         $this->load_sdk();
     }
 
-    /**
-     * Output the admin options table.
+    /** 
+     * Generate HTML for connect widget
+     *
+     * @return string
      */
-    public function admin_options() {
-        global $hide_save_button;
-        $hide_save_button = true;
-
-        wp_enqueue_script( 'xpayments_connect_js', plugins_url( 'assets/js/connect.js', __FILE__ ), array(), \XPaymentsCloud\Client::SDK_VERSION );
-        wp_enqueue_style('xpayments_connect_css', plugins_url( 'assets/css/connect.css', __FILE__ ));
+    protected function generate_connect_html() {
 
         $account = $this->get_option( 'account' );
         $quickaccessKey = $this->get_option( 'quickaccess_key' );
 
-        echo '<h2>' . esc_html( $this->get_method_title() );
-        wc_back_link( __( 'Return to payments', 'woocommerce' ), admin_url( 'admin.php?page=wc-settings&tab=checkout' ) );
-        echo '</h2>';
-//        echo '<table class="form-table">' . $this->generate_settings_html( $this->get_form_fields(), false ) . '</table>';
-        echo <<<HTML
-<table class="form-table">
-<div id="xpayments-iframe-container" style="">
+        $html = <<<HTML
+<div id="xpayments-iframe-container">
 </div>
-</table>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
@@ -89,13 +79,15 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
       alert(params.message);
     }).on('config', function(params) {
       var data = {};
+
+      jQuery.map(jQuery('#mainform').serializeArray(), function (elm) { data[elm['name']] = elm['value']});
+
       data['woocommerce_xpayments_cloud_account'] = params.account;
       data['woocommerce_xpayments_cloud_api_key'] = params.apiKey;
       data['woocommerce_xpayments_cloud_secret_key'] = params.secretKey;
       data['woocommerce_xpayments_cloud_widget_key'] = params.widgetKey;
       data['woocommerce_xpayments_cloud_quickaccess_key'] = params.quickAccessKey;
       data['save'] = '1';
-      data['_wpnonce'] = jQuery('#_wpnonce').val();
       
       jQuery.post(document.location.href, data);  
     });
@@ -106,48 +98,86 @@ class WC_Gateway_XPaymentsCloud extends WC_Payment_Gateway
 
 HTML;
 
+        return apply_filters( 'woocommerce_xpayments_cloud_generate_connect_html', $html );
     }
 
-    function init_form_fields() {
-        $this->form_fields = array(
-/*
-            'enabled' => array(
-                'title' => __( 'Enable/Disable', 'woocommerce' ),
-                'type' => 'checkbox',
-                'label' => __( 'Enable X-Payments Cloud', 'woocommerce' ),
-                'default' => 'yes'
-            ),
+    /**
+     * Output the admin options table.
+     *
+     * @return void
+     */
+    public function admin_options() {
+
+        wp_enqueue_script( 'xpayments_connect_js', plugins_url( 'assets/js/connect.js', __FILE__ ), array(), \XPaymentsCloud\Client::SDK_VERSION );
+        wp_enqueue_style( 'xpayments_connect_css', plugins_url( 'assets/css/connect.css', __FILE__ ) );
+
+        echo '<h2>' . esc_html( $this->get_method_title() );
+        wc_back_link( __( 'Return to payments', 'woocommerce' ), admin_url( 'admin.php?page=wc-settings&tab=checkout' ) );
+        echo '</h2>';
+        echo '<table class="form-table">';
+        echo $this->generate_settings_html( $this->get_visible_form_fields(), false );
+        echo $this->generate_connect_html();
+        echo '</table>';
+    }
+
+    /**
+     * Get visible form fields, i.e. exclude the service ones
+     *
+     * @return array
+     */
+    public function get_visible_form_fields()
+    {
+        $invisible_fields = array( 'account', 'api_key', 'secret_key', 'widget_key' );
+
+        return array_diff_key( $this->get_form_fields(), array_flip($invisible_fields) );
+    }
+
+    /**
+     * Initialise settings form fields.
+     * Add an array of fields to be displayed on the gateway's settings screen.
+     *
+     * @return void
+     */
+    public function init_form_fields() {
+
+        $form_fields = array(
             'title' => array(
-                'title' => __( 'Title', 'woocommerce' ),
-                'type' => 'text',
+                'title'       => __( 'Title', 'woocommerce' ),
+                'type'        => 'text',
                 'description' => __( 'This controls the title which the user sees during checkout.', 'woocommerce' ),
-                'default' => __( 'Credit or Debit card by X-Payments', 'woocommerce' ),
-                'desc_tip'      => true,
+                'default'     => __( 'Credit or Debit card by X-Payments', 'woocommerce' ),
+                'desc_tip'    => true,
             ),
-*/
             'account' => array(
-                'title' => __( 'X-Payments Account', 'woocommerce' ),
-                'type' => 'text',
+                'title'   => __( 'X-Payments Account', 'woocommerce' ),
+                'type'    => 'text',
                 'default' => ''
             ),
             'api_key' => array(
-                'title' => __( 'X-Payments Api Key', 'woocommerce' ),
-                'type' => 'text',
+                'title'   => __( 'X-Payments Api Key', 'woocommerce' ),
+                'type'    => 'text',
                 'default' => ''
             ),
             'secret_key' => array(
-                'title' => __( 'X-Payments Secret Key', 'woocommerce' ),
-                'type' => 'text',
+                'title'   => __( 'X-Payments Secret Key', 'woocommerce' ),
+                'type'    => 'text',
                 'default' => ''
             ),
             'widget_key' => array(
-                'title' => __( 'X-Payments Widget Key', 'woocommerce' ),
-                'type' => 'text',
+                'title'   => __( 'X-Payments Widget Key', 'woocommerce' ),
+                'type'    => 'text',
                 'default' => ''
             ),
         );
+
+        $this->form_fields = apply_filters( 'woocommerce_xpayments_cloud_init_form_fields', $form_fields );
     }
 
+    /**
+     * Display CC form in iframe
+     *
+     * @return void
+     */
     public function payment_fields()
     {
         wp_enqueue_script( 'xpayments_widget_js', plugins_url( 'assets/js/widget.js', __FILE__ ), array(), \XPaymentsCloud\Client::SDK_VERSION );
@@ -162,9 +192,10 @@ HTML;
         $customerId = WC()->customer->get_meta('xpayments_customer_id') ?: '';
         $showSaveCard = WC()->customer->get_id() ? 'true' : 'false';
 
+        do_action( 'woocommerce_xpayments_cloud_payment_html' );
+
         // Display payment form
         require $this->get_plugin_path() . '/includes/payment-form.php';
-
     }
 
     public function process_payment($order_id) {
