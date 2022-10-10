@@ -558,6 +558,8 @@ HTML;
     /**
      * Prepare address data
      *
+     * @param WC_Order $order
+     * @param string $type
      *
      * @return array
      */
@@ -587,7 +589,12 @@ HTML;
 
         foreach ($addressFields as $field => $defValue) {
 
-            $func_prefix = 'get_' . $type . '_';
+            if ('email' == $field) {
+                // There is no email for shipping address
+                $func_prefix = 'get_billing_';
+            } else {
+                $func_prefix = 'get_' . $type . '_';
+            }
 
             if ('address' == $field) {
                 $result[$field] =
