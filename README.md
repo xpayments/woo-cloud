@@ -1,9 +1,5 @@
 # X-Payments Cloud connector for WooCommerce 
 
-Tags: ecommerce, e-commerce, commerce, woothemes, wordpress ecommerce, payments
-License: GPLv3
-License URI: http://www.gnu.org/licenses/gpl-3.0.html
-
 This extension connects your WooCommerce store with X-Payments Cloud - a PSD2/SCA ready PCI Level 1 certified credit card processing app which allows you to store customers’ credit card information and still be compliant with PCI security mandates.
 
 The credit card form can be embedded right into checkout page, so your customers won’t leave your site to complete an order.
