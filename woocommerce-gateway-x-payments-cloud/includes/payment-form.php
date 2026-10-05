@@ -1,6 +1,7 @@
 <?php
 /**
- * Copyright (c) 2019-present Qualiteam software Ltd. All rights reserved.
+ * Copyright (c) 2019-present X-Cart Holdings LLC.
+ * Licensed under GPL-2.0-or-later: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
  */
 
 defined( 'ABSPATH' ) or die();

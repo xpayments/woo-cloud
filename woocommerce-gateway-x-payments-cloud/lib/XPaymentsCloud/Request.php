@@ -2,7 +2,7 @@
 // vim: set ts=4 sw=4 sts=4 et:
 
 /**
- * Copyright (c) 2011-present Qualiteam software Ltd. All rights reserved.
+ * Copyright (c) 2011-present X-Cart Holdings LLC. All rights reserved.
  * See https://www.x-cart.com/license-agreement.html for license details.
  */
 
@@ -11,7 +11,7 @@ namespace XPaymentsCloud;
 class Request
 {
     const XP_DOMAIN = 'xpayments.com';
-    const API_VERSION = '4.7';
+    const API_VERSION = '4.8';
 
     private $connectionTimeout = 120;
 
@@ -134,7 +134,8 @@ class Request
 
         curl_setopt($ch, CURLOPT_HEADERFUNCTION, array($this, 'getSignatureFromHeaders'));
 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+        // Requests carry the API key and shopper data, so the server certificate must be verified
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 
         return $ch;

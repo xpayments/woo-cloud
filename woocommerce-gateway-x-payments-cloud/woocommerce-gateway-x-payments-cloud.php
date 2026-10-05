@@ -5,6 +5,8 @@
  * Version: 0.2.1
  * Author: X-Cart Payments
  * Author URI: https://x-payments.com
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
  */
 
 defined( 'ABSPATH' ) or die();
