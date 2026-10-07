@@ -46,7 +46,7 @@ defined( 'ABSPATH' ) or die();
         if ('undefined' == typeof window.xpaymentsWidget) {
             window.xpaymentsWidget = new XPaymentsWidget();
             window.xpaymentsWidget.init({
-                debug: true,
+                debug: false,
                 account: '<?php echo $account; ?>',
                 widgetKey: '<?php echo $widgetKey; ?>',
                 container: '#xpayments-container',
